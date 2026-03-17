@@ -9,16 +9,17 @@ Use **Cloudflare Workers Static Assets** for the web frontend.
 Why this is the best current fit:
 
 - Cloudflare now recommends Workers with static assets for new projects instead of starting on Pages.
-- It gives us a direct deploy path from your laptop, so GitHub is optional.
+- It works well with GitHub auto-deploys.
 - It fits Expo web well once we export the app as a single-page web build.
-- We can proxy `/api/*` through the same Cloudflare domain later, which keeps the public app URL simple.
+- We can keep the frontend and the static transit API on the same Cloudflare domain.
 
 ## What is already wired
 
 - `apps/mobile/app.json` sets `web.output` to `single`
 - `apps/mobile/wrangler.jsonc` is ready for Cloudflare
-- `apps/mobile/cloudflare-proxy.js` proxies `/api/*` to a public backend
-- `apps/mobile/.dev.vars.example` shows the one local variable the proxy needs
+- `apps/mobile/cloudflare-proxy.js` now serves the public MVP API directly from Cloudflare
+- `apps/mobile/cloudflare-api-data/` contains the repo-tracked static transit data bundle used by the Worker
+- `infra/scripts/generate-cloudflare-api-data.mjs` rebuilds that bundle when the GTFS source changes
 
 ## Commands
 
@@ -38,9 +39,7 @@ npm run deploy:web:cloudflare
 
 ## Local Cloudflare-style preview
 
-1. Copy `apps/mobile/.dev.vars.example` to `apps/mobile/.dev.vars`
-2. Make sure `API_ORIGIN` points at the running backend
-3. Run:
+1. Run:
 
 ```sh
 cd apps/mobile
@@ -52,20 +51,18 @@ That gives you:
 
 - the exported Expo web app
 - SPA routing
-- `/api/*` proxying to your API server
+- `/api/*` served by the same Worker using the embedded static transit dataset
+
+Optional:
+
+- if you want to test an experimental remote backend, copy `apps/mobile/.dev.vars.example` to `apps/mobile/.dev.vars` and set `API_ORIGIN`
 
 ## Production deploy without GitHub
 
 1. Create a Cloudflare account
 2. Run `npx wrangler login`
 3. Run `cd apps/mobile`
-4. Set the backend origin:
-
-```sh
-npx wrangler secret put API_ORIGIN
-```
-
-5. Deploy:
+4. Deploy:
 
 ```sh
 npm run deploy:web:cloudflare
@@ -73,42 +70,30 @@ npm run deploy:web:cloudflare
 
 ## Git-based deploy later
 
-If we connect this repo to GitHub later, the easiest Cloudflare build settings are:
+For GitHub auto-deploys, the working Cloudflare build settings are:
 
-- Root directory: repo root
-- Build command: `npm run build:web --workspace @transito-bogota/mobile`
-- Build output directory: `apps/mobile/dist`
+- Root directory: `apps/mobile`
+- Build command: `npm run build:web`
+- Deploy command: `npx wrangler deploy`
 
-## Important architecture note
+## Current architecture
 
-The frontend can be deployed right now, but **the transit API still needs a public home** if friends outside your Wi-Fi network are going to use it.
+The public web MVP is now fully usable without a laptop tunnel:
 
-Right now the cleanest shape is:
+- Cloudflare serves the Expo web frontend
+- Cloudflare serves the static GTFS-based API for search, places, journeys, stops, and departures
+- the local Node API remains useful for development and future realtime work, but it is no longer required for the public share link
 
-- Cloudflare for the web frontend
-- a public API host for `services/api`
-- the Cloudflare proxy forwarding `/api/*` to that backend
+## Refreshing the Cloudflare transit dataset
 
-## Temporary friend-testing setup
-
-If you want to share the MVP with a friend before we choose a permanent API host:
-
-1. Start the API on your Mac:
+If the Bogotá GTFS feed changes and you want the public Worker updated:
 
 ```sh
-npm run dev:api
+npm run refresh:static
+npm run build:cloudflare-api-data
+git add apps/mobile/cloudflare-api-data
+git commit -m "Refresh Cloudflare transit data"
+git push origin main
 ```
 
-2. In another terminal, create a temporary public URL for it:
-
-```sh
-npm run share:api
-```
-
-3. Point `API_ORIGIN` in the Cloudflare Worker at that tunnel URL.
-
-This works well for private friend testing, but the tunnel only stays live while your Mac, the API process, and `cloudflared` keep running.
-
-## Best next step
-
-Make the web build stable first, then choose where the API should live publicly.
+Cloudflare will rebuild automatically from GitHub.

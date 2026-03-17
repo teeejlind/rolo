@@ -1,1 +1,2 @@
+# Optional local override. The public Worker no longer needs this.
 API_ORIGIN=http://127.0.0.1:4000

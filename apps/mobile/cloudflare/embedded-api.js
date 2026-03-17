@@ -317,8 +317,22 @@ async function getStopDepartures(env, limit, stopId) {
 
   return candidates
     .sort((first, second) => first.etaRanking - second.etaRanking)
-    .slice(0, limit)
-    .map(({ etaRanking, ...departure }) => departure);
+    .reduce((deduped, candidate) => {
+      const duplicateKey = `${candidate.route}|${candidate.destination}|${candidate.scheduledTime}`;
+      const alreadyIncluded = deduped.some(
+        (departure) =>
+          `${departure.route}|${departure.destination}|${departure.scheduledTime}` ===
+          duplicateKey
+      );
+
+      if (alreadyIncluded || deduped.length >= limit) {
+        return deduped;
+      }
+
+      const { etaRanking, ...departure } = candidate;
+      deduped.push(departure);
+      return deduped;
+    }, []);
 }
 
 function isServiceActive(departureMetadata, serviceId, timeContext) {

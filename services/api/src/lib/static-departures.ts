@@ -131,8 +131,22 @@ export async function getStopDepartures(
 
   return candidates
     .sort((first, second) => first.etaRanking - second.etaRanking)
-    .slice(0, limit)
-    .map(({ etaRanking: _ignore, ...departure }) => departure);
+    .reduce<StaticDeparture[]>((deduped, candidate) => {
+      const duplicateKey = `${candidate.route}|${candidate.destination}|${candidate.scheduledTime}`;
+      const alreadyIncluded = deduped.some(
+        (departure) =>
+          `${departure.route}|${departure.destination}|${departure.scheduledTime}` ===
+          duplicateKey
+      );
+
+      if (alreadyIncluded || deduped.length >= limit) {
+        return deduped;
+      }
+
+      const { etaRanking: _ignore, ...departure } = candidate;
+      deduped.push(departure);
+      return deduped;
+    }, []);
 }
 
 async function loadDepartureDataset(): Promise<DepartureDataset> {
