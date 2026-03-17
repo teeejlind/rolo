@@ -11,7 +11,11 @@ import { RouteBadge } from "../../components/RouteBadge";
 import { Screen } from "../../components/Screen";
 import { theme } from "../../constants/theme";
 import { useJourneyStore } from "../../lib/journey-store";
-import { fetchStopDepartures, type JourneyRideLeg } from "../../lib/transit";
+import {
+  fetchStopDepartures,
+  type JourneyRideLeg,
+  type StopDeparturesResponse
+} from "../../lib/transit";
 
 export default function TripDetailScreen() {
   const { journeyId } = useLocalSearchParams<{ journeyId: string }>();
@@ -45,11 +49,12 @@ export default function TripDetailScreen() {
     staleTime: 60_000
   });
 
-  const nextBoardingDeparture = firstRideLeg
-    ? departuresQuery.data?.departures.find(
-        (departure) => departure.route === firstRideLeg.routeShortName
-      )
-    : undefined;
+  const upcomingBoardingDepartures = firstRideLeg
+    ? departuresQuery.data?.departures
+        .filter((departure) => departure.route === firstRideLeg.routeShortName)
+        .slice(0, 3) ?? []
+    : [];
+  const firstUpcomingDeparture = upcomingBoardingDepartures[0];
 
   return (
     <Screen
@@ -76,22 +81,32 @@ export default function TripDetailScreen() {
             <View style={styles.departureCopy}>
               <Text style={styles.departureTitle}>
                 {departuresQuery.isLoading
-                  ? "Checking the next scheduled departure"
-                  : nextBoardingDeparture
+                  ? "Checking the next scheduled departures"
+                  : firstUpcomingDeparture
                     ? `${firstRideLeg.routeShortName} from ${journey.boardingStop.name}`
                     : `No scheduled ${firstRideLeg.routeShortName} departure found yet`}
               </Text>
               <Text style={styles.departureMeta}>
                 {departuresQuery.isLoading
                   ? "Pulling scheduled departures from the static GTFS feed."
-                  : nextBoardingDeparture
-                    ? `${typeof nextBoardingDeparture.etaMinutes === "number"
-                        ? nextBoardingDeparture.etaMinutes === 0
-                          ? "Due now"
-                          : `${nextBoardingDeparture.etaMinutes} min`
-                        : "ETA pending"} • ${nextBoardingDeparture.scheduledTime}`
+                  : firstUpcomingDeparture
+                    ? `${formatDepartureLead(firstUpcomingDeparture)} • ${firstUpcomingDeparture.scheduledTime}`
                     : "Try opening the stop detail for the full departure board."}
               </Text>
+              {upcomingBoardingDepartures.length > 0 ? (
+                <View style={styles.departureChipRow}>
+                  {upcomingBoardingDepartures.map((departure, index) => (
+                    <View
+                      key={`${journey.id}-${departure.route}-${departure.scheduledTime ?? index}`}
+                      style={styles.departureChip}
+                    >
+                      <Text style={styles.departureChipText}>
+                        {formatDepartureLead(departure)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           </View>
         </View>
@@ -119,6 +134,24 @@ export default function TripDetailScreen() {
       </Link>
     </Screen>
   );
+}
+
+function formatDepartureLead(
+  departure: StopDeparturesResponse["departures"][number]
+): string {
+  if (typeof departure.etaMinutes === "number") {
+    if (departure.etaMinutes <= 0) {
+      return "Due now";
+    }
+
+    return `${departure.etaMinutes} min`;
+  }
+
+  if (departure.scheduledTime) {
+    return departure.scheduledTime;
+  }
+
+  return "Scheduled";
 }
 
 const styles = StyleSheet.create({
@@ -163,6 +196,24 @@ const styles = StyleSheet.create({
   },
   departureMeta: {
     color: theme.colors.mutedInk
+  },
+  departureChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing.sm,
+    marginTop: 4
+  },
+  departureChip: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  departureChipText: {
+    color: theme.colors.ink,
+    fontWeight: "800"
   },
   section: {
     gap: theme.spacing.sm
