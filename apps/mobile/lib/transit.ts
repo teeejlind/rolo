@@ -133,7 +133,7 @@ export interface JourneyPlanResponse {
 
 export async function fetchNearbyStops(lat: number, lon: number): Promise<NearbyStop[]> {
   const apiBaseUrl = await getReachableApiBaseUrl();
-  const url = new URL("/stops/nearby", withTrailingSlash(apiBaseUrl));
+  const url = buildApiUrl(apiBaseUrl, "stops/nearby");
   url.searchParams.set("lat", String(lat));
   url.searchParams.set("lon", String(lon));
   url.searchParams.set("radius", "700");
@@ -148,7 +148,7 @@ export async function fetchNearbyStops(lat: number, lon: number): Promise<Nearby
 export async function fetchStop(stopId: string): Promise<StopDetail> {
   const apiBaseUrl = await getReachableApiBaseUrl();
   const data = await fetchJson<{ stop: StopDetail }>(
-    new URL(`/stops/${stopId}`, withTrailingSlash(apiBaseUrl)).toString(),
+    buildApiUrl(apiBaseUrl, `stops/${stopId}`).toString(),
     "Could not reach the transit API from this device, so stop details could not load."
   );
   return data.stop;
@@ -159,10 +159,7 @@ export async function fetchStopDepartures(
   limit?: number
 ): Promise<StopDeparturesResponse> {
   const apiBaseUrl = await getReachableApiBaseUrl();
-  const url = new URL(
-    `/stops/${stopId}/departures`,
-    withTrailingSlash(apiBaseUrl)
-  );
+  const url = buildApiUrl(apiBaseUrl, `stops/${stopId}/departures`);
   if (limit) {
     url.searchParams.set("limit", String(limit));
   }
@@ -176,10 +173,10 @@ export async function fetchStopDepartures(
 export async function searchTransit(query: string): Promise<SearchResponse> {
   try {
     const apiBaseUrl = await getReachableApiBaseUrl();
-    const transitUrl = new URL("/search", withTrailingSlash(apiBaseUrl));
+    const transitUrl = buildApiUrl(apiBaseUrl, "search");
     transitUrl.searchParams.set("q", query);
 
-    const placeUrl = new URL("/places/search", withTrailingSlash(apiBaseUrl));
+    const placeUrl = buildApiUrl(apiBaseUrl, "places/search");
     placeUrl.searchParams.set("q", query);
 
     const [transitResult, placeResult] = await Promise.allSettled([
@@ -239,7 +236,7 @@ export async function fetchJourneys(
   to: JourneyQueryPoint
 ): Promise<JourneyPlanResponse> {
   const apiBaseUrl = await getReachableApiBaseUrl();
-  const url = new URL("/journeys", withTrailingSlash(apiBaseUrl));
+  const url = buildApiUrl(apiBaseUrl, "journeys");
   url.searchParams.set("fromLat", String(from.lat));
   url.searchParams.set("fromLon", String(from.lon));
   url.searchParams.set("toLat", String(to.lat));
@@ -320,6 +317,11 @@ function withTrailingSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;
 }
 
+function buildApiUrl(baseUrl: string, path: string): URL {
+  const normalizedPath = path.replace(/^\/+/, "");
+  return new URL(normalizedPath, withTrailingSlash(baseUrl));
+}
+
 let reachableApiBaseUrl: string | null = null;
 
 async function getReachableApiBaseUrl(): Promise<string> {
@@ -347,9 +349,7 @@ async function getReachableApiBaseUrl(): Promise<string> {
 }
 
 async function probeApiBaseUrl(baseUrl: string): Promise<void> {
-  const response = await fetch(
-    new URL("/health", withTrailingSlash(baseUrl)).toString()
-  );
+  const response = await fetch(buildApiUrl(baseUrl, "health").toString());
 
   if (!response.ok) {
     throw new Error(`Health check failed with HTTP ${response.status}.`);
