@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import {
   Linking,
@@ -18,7 +18,11 @@ import { useJourneyStore } from "../../lib/journey-store";
 import type { PlannerSelection } from "../../lib/planner-store";
 import { usePlannerStore } from "../../lib/planner-store";
 import {
+  fetchStopDepartures,
   fetchJourneys,
+  type JourneyItinerary,
+  type JourneyRideLeg,
+  type StopDeparturesResponse,
   type JourneyPlanResponse
 } from "../../lib/transit";
 
@@ -75,7 +79,24 @@ export default function TripResultsScreen() {
     }
   }, [journeyQuery.data, setLatestPlan]);
 
-  const topItinerary = journeyQuery.data?.itineraries[0];
+  const itineraries = journeyQuery.data?.itineraries ?? [];
+  const topItinerary = itineraries[0];
+  const boardingStopIds: string[] = [];
+
+  for (const itinerary of itineraries) {
+    if (!boardingStopIds.includes(itinerary.boardingStop.id)) {
+      boardingStopIds.push(itinerary.boardingStop.id);
+    }
+  }
+
+  const departuresQueries = useQueries({
+    queries: boardingStopIds.map((stopId) => ({
+      queryKey: ["trip-card-stop-departures", stopId],
+      queryFn: () => fetchStopDepartures(stopId, 8),
+      enabled: canRequestJourneys,
+      staleTime: 60_000
+    }))
+  });
 
   return (
     <Screen
@@ -154,7 +175,19 @@ export default function TripResultsScreen() {
           </InfoCard>
         ) : null}
 
-        {journeyQuery.data?.itineraries.map((itinerary) => (
+        {itineraries.map((itinerary) => {
+          const boardingDepartures = getStopDepartureData(
+            itinerary.boardingStop.id,
+            boardingStopIds,
+            departuresQueries
+          );
+          const rideLeg = getFirstRideLeg(itinerary);
+          const matchingDepartures = getMatchingDepartures(
+            rideLeg,
+            boardingDepartures
+          );
+
+          return (
           <Pressable
             key={itinerary.id}
             onPress={() => {
@@ -190,8 +223,48 @@ export default function TripResultsScreen() {
             <Text style={styles.itineraryStops}>
               Board at {itinerary.boardingStop.name} • Exit at {itinerary.alightingStop.name}
             </Text>
+
+            {rideLeg ? (
+              <View style={styles.departurePanel}>
+                <Text style={styles.departurePanelLabel}>Next departures</Text>
+                <Text style={styles.departurePanelTitle}>
+                  {matchingDepartures.length > 0
+                    ? `${rideLeg.routeShortName} from ${itinerary.boardingStop.name}`
+                    : boardingDepartures
+                      ? `No scheduled ${rideLeg.routeShortName} departure matched yet`
+                      : "Checking the next departures from this boarding stop"}
+                </Text>
+                <View style={styles.departureChipRow}>
+                  {matchingDepartures.length > 0 ? (
+                    matchingDepartures.map((departure, index) => (
+                      <View
+                        key={`${itinerary.id}-${departure.route}-${departure.scheduledTime ?? index}`}
+                        style={styles.departureChip}
+                      >
+                        <Text style={styles.departureChipText}>
+                          {formatDepartureBadge(departure)}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.departureChipMuted}>
+                      <Text style={styles.departureChipMutedText}>
+                        {boardingDepartures
+                          ? "Try opening trip detail for the full stop board."
+                          : "Loading stop board"}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.departurePanelMeta}>
+                  {matchingDepartures[0]?.destination ??
+                    rideLeg.routeLongName}
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
-        ))}
+          );
+        })}
       </View>
 
       {topItinerary ? (
@@ -238,6 +311,56 @@ export default function TripResultsScreen() {
       ) : null}
     </Screen>
   );
+}
+
+function getStopDepartureData(
+  stopId: string,
+  boardingStopIds: string[],
+  departuresQueries: Array<{ data?: StopDeparturesResponse }>
+): StopDeparturesResponse | undefined {
+  const index = boardingStopIds.indexOf(stopId);
+  if (index < 0) {
+    return undefined;
+  }
+
+  return departuresQueries[index]?.data;
+}
+
+function getFirstRideLeg(itinerary: JourneyItinerary): JourneyRideLeg | undefined {
+  return itinerary.legs.find(
+    (leg): leg is JourneyRideLeg => leg.kind === "ride"
+  );
+}
+
+function getMatchingDepartures(
+  rideLeg: JourneyRideLeg | undefined,
+  stopDepartures: StopDeparturesResponse | undefined
+) {
+  if (!rideLeg || !stopDepartures) {
+    return [];
+  }
+
+  return stopDepartures.departures
+    .filter((departure) => departure.route === rideLeg.routeShortName)
+    .slice(0, 3);
+}
+
+function formatDepartureBadge(
+  departure: StopDeparturesResponse["departures"][number]
+): string {
+  if (typeof departure.etaMinutes === "number") {
+    if (departure.etaMinutes <= 0) {
+      return "Due now";
+    }
+
+    return `${departure.etaMinutes} min`;
+  }
+
+  if (departure.scheduledTime) {
+    return departure.scheduledTime;
+  }
+
+  return "Scheduled";
 }
 
 function buildAppleTransitDirectionsUrl(
@@ -380,6 +503,56 @@ const styles = StyleSheet.create({
   itineraryStops: {
     color: theme.colors.line,
     fontWeight: "700"
+  },
+  departurePanel: {
+    backgroundColor: "#F7FBFB",
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm
+  },
+  departurePanelLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: theme.colors.line
+  },
+  departurePanelTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: theme.colors.ink
+  },
+  departureChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing.sm
+  },
+  departureChip: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  departureChipText: {
+    color: theme.colors.ink,
+    fontWeight: "800"
+  },
+  departureChipMuted: {
+    backgroundColor: theme.colors.lineSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  departureChipMutedText: {
+    color: theme.colors.line,
+    fontWeight: "700"
+  },
+  departurePanelMeta: {
+    color: theme.colors.mutedInk
   },
   stopHintCard: {
     backgroundColor: theme.colors.card,

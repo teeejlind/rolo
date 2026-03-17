@@ -1,7 +1,7 @@
 import { Link, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { useEffect, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Pressable,
   StyleSheet,
@@ -21,7 +21,7 @@ import { searchTransit } from "../../lib/transit";
 export default function SearchScreen() {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [lastSubmittedQuery, setLastSubmittedQuery] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [currentLocationSelection, setCurrentLocationSelection] = useState<{
     label: string;
     detail: string;
@@ -42,10 +42,28 @@ export default function SearchScreen() {
   const work = useSavedStore((state) => state.work);
   const favorites = useSavedStore((state) => state.favorites);
   const trimmedQuery = query.trim();
+  const activeSearchTerm = searchTerm.trim();
+
+  useEffect(() => {
+    const cleaned = query.trim();
+    if (cleaned.length < 2) {
+      setSearchTerm("");
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setSearchTerm(cleaned);
+    }, 350);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [query]);
 
   function applySelection(field: PlannerField, selection: PlannerSelection) {
     setSelection(field, selection);
     setQuery("");
+    setSearchTerm("");
 
     const nextFrom = field === "from" ? selection : from;
     const nextTo = field === "to" ? selection : to;
@@ -61,8 +79,8 @@ export default function SearchScreen() {
     const cleaned = value.trim();
     const normalizedCleaned = cleaned.toLowerCase();
     const matchingResult =
-      lastSubmittedQuery.trim().toLowerCase() === normalizedCleaned
-        ? searchMutation.data?.results.find((result) => {
+      activeSearchTerm.toLowerCase() === normalizedCleaned
+        ? searchQuery.data?.results.find((result) => {
             if (result.type === "place") {
               return (
                 result.item.label.toLowerCase().includes(normalizedCleaned) ||
@@ -123,14 +141,9 @@ export default function SearchScreen() {
     applySelection(field, resolveSelectionFromLatestResults(field, cleaned));
   }
 
-  function runSearch(value: string) {
+  function triggerImmediateSearch(value: string) {
     const cleaned = value.trim();
-    if (cleaned.length < 2) {
-      return;
-    }
-
-    setLastSubmittedQuery(cleaned);
-    searchMutation.mutate(cleaned);
+    setSearchTerm(cleaned.length >= 2 ? cleaned : "");
   }
 
   useEffect(() => {
@@ -161,12 +174,8 @@ export default function SearchScreen() {
         setCurrentLocationSelection({
           label: "Current location",
           detail:
-            [
-              bestMatch?.district,
-              bestMatch?.city
-            ]
-              .filter(Boolean)
-              .join(", ") || "Use your live device position",
+            [bestMatch?.district, bestMatch?.city].filter(Boolean).join(", ") ||
+            "Use your live device position",
           lat: lastKnown.coords.latitude,
           lon: lastKnown.coords.longitude
         });
@@ -182,18 +191,111 @@ export default function SearchScreen() {
     };
   }, []);
 
-  const searchMutation = useMutation({
-    mutationFn: (searchText: string) => searchTransit(searchText)
+  const searchQuery = useQuery({
+    queryKey: ["search", activeSearchTerm],
+    queryFn: () => searchTransit(activeSearchTerm),
+    enabled: activeSearchTerm.length >= 2,
+    staleTime: 60_000
   });
+
+  function renderSearchResult(
+    result:
+      | NonNullable<typeof searchQuery.data>["results"][number]
+      | undefined
+  ) {
+    if (!result) {
+      return null;
+    }
+
+    if (result.type === "stop") {
+      return (
+        <Pressable
+          key={result.item.id}
+          onPress={() => {
+            const selectedStop: PlannerSelection = {
+              id: result.item.id,
+              kind: "stop",
+              label: result.item.name,
+              detail: `Stop ${result.item.code ?? result.item.id}`,
+              kindLabel: "Transit stop",
+              lat: result.item.lat,
+              lon: result.item.lon,
+              stopId: result.item.id
+            };
+            applySelection(activeField, selectedStop);
+          }}
+          style={styles.resultCard}
+        >
+          <Text style={styles.resultTitle}>{result.item.name}</Text>
+          <Text style={styles.resultSubtitle}>
+            Stop {result.item.code ?? result.item.id}
+          </Text>
+          <Text style={styles.pickHint}>Tap to use as {activeField}</Text>
+        </Pressable>
+      );
+    }
+
+    if (result.type === "route") {
+      return (
+        <View key={result.item.id} style={styles.resultCard}>
+          <RouteBadge route={result.item.shortName} />
+          <Text style={styles.resultTitle}>{result.item.longName}</Text>
+          <Text style={styles.resultSubtitle}>
+            Route search is live. Stop-level route departures are the next upgrade.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <Pressable
+        key={result.item.id}
+        onPress={() => {
+          const selectedPlace: PlannerSelection = {
+            id: result.item.id,
+            kind: "place",
+            label: result.item.label,
+            detail: result.item.detail,
+            kindLabel: result.item.kindLabel,
+            lat: result.item.lat,
+            lon: result.item.lon,
+            mapsQuery: `${result.item.label}, Bogota, Colombia`
+          };
+          applySelection(activeField, selectedPlace);
+        }}
+        style={styles.resultCard}
+      >
+        <View style={styles.placeHeader}>
+          <Text style={styles.resultTitle}>{result.item.label}</Text>
+          <View style={styles.placeKindPill}>
+            <Text style={styles.placeKindText}>{result.item.kindLabel}</Text>
+          </View>
+        </View>
+        <Text style={styles.resultSubtitle}>{result.item.detail}</Text>
+        <Text style={styles.pickHint}>Tap to use as {activeField}</Text>
+      </Pressable>
+    );
+  }
 
   return (
     <Screen
       title="Search"
-      subtitle="Search Bogota deliberately, then pick a result for From or To."
+      subtitle="One search bar, fast results, and quicker trip setup."
     >
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Trip planner</Text>
-        <View style={styles.plannerStack}>
+      <View style={styles.searchPanel}>
+        <View style={styles.searchPanelHeader}>
+          <Text style={styles.sectionTitle}>Trip planner</Text>
+          <View style={styles.plannerActions}>
+            <Pressable onPress={swap} style={styles.smallAction}>
+              <Text style={styles.smallActionText}>Swap</Text>
+            </Pressable>
+            <Pressable onPress={() => clearField(activeField)} style={styles.smallAction}>
+              <Text style={styles.smallActionText}>Clear {activeField}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.plannerRow}>
           <Pressable
             onPress={() => setActiveField("from")}
             style={[
@@ -202,20 +304,13 @@ export default function SearchScreen() {
             ]}
           >
             <Text style={styles.plannerLabel}>From</Text>
-            <Text style={styles.plannerValue}>{from?.label ?? "Choose a starting point"}</Text>
-            <Text style={styles.plannerDetail}>
-              {from?.detail ?? "Search a place, stop, or use your current location"}
+            <Text numberOfLines={1} style={styles.plannerValue}>
+              {from?.label ?? "Tap a result below"}
+            </Text>
+            <Text numberOfLines={1} style={styles.plannerDetail}>
+              {from?.detail ?? "Start point, landmark, or current location"}
             </Text>
           </Pressable>
-
-          <View style={styles.plannerActions}>
-            <Pressable onPress={swap} style={styles.smallAction}>
-              <Text style={styles.smallActionText}>Swap</Text>
-            </Pressable>
-            <Pressable onPress={() => clearField(activeField)} style={styles.smallAction}>
-              <Text style={styles.smallActionText}>Clear active</Text>
-            </Pressable>
-          </View>
 
           <Pressable
             onPress={() => setActiveField("to")}
@@ -225,155 +320,34 @@ export default function SearchScreen() {
             ]}
           >
             <Text style={styles.plannerLabel}>To</Text>
-            <Text style={styles.plannerValue}>{to?.label ?? "Choose a destination"}</Text>
-            <Text style={styles.plannerDetail}>
-              {to?.detail ?? "Search a place or stop in Bogota"}
+            <Text numberOfLines={1} style={styles.plannerValue}>
+              {to?.label ?? "Tap a result below"}
+            </Text>
+            <Text numberOfLines={1} style={styles.plannerDetail}>
+              {to?.detail ?? "Destination, stop, or neighborhood"}
             </Text>
           </Pressable>
         </View>
 
-        {from ? (
-          <View style={styles.savedActionCard}>
-            <Text style={styles.savedActionTitle}>Keep this starting point handy</Text>
-            <Text style={styles.savedActionBody}>{from.label}</Text>
-            <View style={styles.savedActionRow}>
-              <Pressable onPress={() => setSlot("home", from)} style={styles.savedAction}>
-                <Text style={styles.savedActionText}>Save as Home</Text>
-              </Pressable>
-              <Pressable onPress={() => saveFavorite(from)} style={styles.savedActionMuted}>
-                <Text style={styles.savedActionMutedText}>
-                  {isFavorite(from.id) ? "Saved to favorites" : "Save favorite"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        {to ? (
-          <View style={styles.savedActionCard}>
-            <Text style={styles.savedActionTitle}>Keep this destination ready</Text>
-            <Text style={styles.savedActionBody}>{to.label}</Text>
-            <View style={styles.savedActionRow}>
-              <Pressable onPress={() => setSlot("work", to)} style={styles.savedAction}>
-                <Text style={styles.savedActionText}>Save as Work</Text>
-              </Pressable>
-              <Pressable onPress={() => saveFavorite(to)} style={styles.savedActionMuted}>
-                <Text style={styles.savedActionMutedText}>
-                  {isFavorite(to.id) ? "Saved to favorites" : "Save favorite"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-      </View>
-
-      {home || work || favorites.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Saved shortcuts</Text>
-          {home ? (
-            <Pressable
-              onPress={() => applySelection(activeField, home)}
-              style={styles.quickChoice}
-            >
-              <Text style={styles.quickChoiceTitle}>Use Home</Text>
-              <Text style={styles.quickChoiceBody}>{home.label}</Text>
-            </Pressable>
-          ) : null}
-          {work ? (
-            <Pressable
-              onPress={() => applySelection(activeField, work)}
-              style={styles.quickChoice}
-            >
-              <Text style={styles.quickChoiceTitle}>Use Work</Text>
-              <Text style={styles.quickChoiceBody}>{work.label}</Text>
-            </Pressable>
-          ) : null}
-          {favorites.length > 0 ? (
-            <View style={styles.tagRow}>
-              {favorites.slice(0, 6).map((favorite) => (
-                <Pressable
-                  key={favorite.id}
-                  onPress={() => applySelection(activeField, favorite)}
-                  style={styles.tag}
-                >
-                  <Text style={styles.tagText}>{favorite.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
-      <View style={styles.searchBox}>
         <Text style={styles.searchLabel}>
-          Searching for: {activeField === "from" ? "starting point" : "destination"}
+          Filling {activeField === "from" ? "From" : "To"}
         </Text>
         <TextInput
           autoCapitalize="words"
           autoCorrect={false}
           onChangeText={setQuery}
-          onSubmitEditing={() => runSearch(trimmedQuery)}
-          placeholder="Try Theatron, Andino, Museo del Oro, Portal Norte..."
+          onSubmitEditing={() => triggerImmediateSearch(trimmedQuery)}
+          placeholder="Search places, businesses, addresses, stops..."
           placeholderTextColor={theme.colors.mutedInk}
           returnKeyType="search"
           style={styles.input}
           value={query}
         />
         <Text style={styles.searchHint}>
-          Search for businesses, landmarks, neighborhoods, addresses, stops, or routes. Tap Search first, then choose a result.
+          Results update right below. Tap one result to fill {activeField}.
         </Text>
 
-        {trimmedQuery.length >= 2 ? (
-          <View style={styles.inlineActions}>
-            <Pressable
-              onPress={() => runSearch(trimmedQuery)}
-              style={styles.searchAction}
-            >
-              <Text style={styles.searchActionText}>Search Bogota</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => applyFreeformSelection("from", trimmedQuery)}
-              style={[
-                styles.inlineAction,
-                activeField === "from" ? styles.inlineActionActive : null
-              ]}
-            >
-              <Text style={styles.inlineActionText}>Use as From</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => applyFreeformSelection("to", trimmedQuery)}
-              style={[
-                styles.inlineAction,
-                activeField === "to" ? styles.inlineActionActive : null
-              ]}
-            >
-              <Text style={styles.inlineActionText}>Use as To</Text>
-            </Pressable>
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Try these</Text>
-        <View style={styles.tagRow}>
-          {["Theatron", "Andino", "Museo del Oro", "Portal Norte"].map((item) => (
-            <Pressable
-              key={item}
-              onPress={() => {
-                setQuery(item);
-                runSearch(item);
-              }}
-              style={styles.tag}
-            >
-              <Text style={styles.tagText}>{item}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Results</Text>
-        {currentLocationSelection ? (
+        {currentLocationSelection && activeField === "from" ? (
           <Pressable
             onPress={() => {
               applySelection(activeField, {
@@ -387,155 +361,173 @@ export default function SearchScreen() {
                 mapsQuery: "Current location"
               });
             }}
-            style={styles.quickChoice}
+            style={styles.inlineShortcut}
           >
-            <Text style={styles.quickChoiceTitle}>Use current location</Text>
-            <Text style={styles.quickChoiceBody}>{currentLocationSelection.detail}</Text>
+            <Text style={styles.inlineShortcutTitle}>Use current location</Text>
+            <Text style={styles.inlineShortcutBody}>
+              {currentLocationSelection.detail}
+            </Text>
           </Pressable>
         ) : null}
 
         {trimmedQuery.length >= 2 ? (
           <Pressable
             onPress={() => applyFreeformSelection(activeField, trimmedQuery)}
-            style={styles.quickChoice}
+            style={styles.inlineShortcut}
           >
-            <Text style={styles.quickChoiceTitle}>Use typed place</Text>
-            <Text style={styles.quickChoiceBody}>
-              Use "{trimmedQuery}" as your {activeField === "from" ? "starting point" : "destination"} even if search is imperfect.
+            <Text style={styles.inlineShortcutTitle}>Use typed place exactly</Text>
+            <Text style={styles.inlineShortcutBody}>
+              Use "{trimmedQuery}" as your {activeField}.
             </Text>
           </Pressable>
         ) : null}
+      </View>
 
-        {trimmedQuery.length >= 2 ? (
-          <InfoCard title="Manual planner tip">
-            This search is now place-first. You should be able to search for venue names, landmarks, shopping centers, and neighborhoods without knowing the stop name first.
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Results</Text>
+
+        {trimmedQuery.length < 2 ? (
+          <InfoCard title="Start typing">
+            Search for places like Theatron, Andino, Monserrate, or Portal Norte.
+            Results land right below this box now.
           </InfoCard>
         ) : null}
 
-        {!searchMutation.isPending &&
-        searchMutation.data &&
-        !searchMutation.data.transitApiReachable ? (
-          <InfoCard title="Transit backend unavailable">
-            Stop and route results are temporarily offline, but place search still works for manual trip setup.
-          </InfoCard>
-        ) : null}
-
-        {lastSubmittedQuery.length < 2 ? (
-          <InfoCard title="Start with a search">
-            Type a place like Theatron, a business like Andino, a landmark like Monserrate, or a stop like Portal Norte, then tap Search Bogota.
-          </InfoCard>
-        ) : null}
-
-        {searchMutation.isPending ? (
+        {searchQuery.isLoading ? (
           <InfoCard title="Searching">
-            Looking through Bogota transit data plus OpenStreetMap place results.
+            Looking through Bogota transit data and place matches as you type.
           </InfoCard>
         ) : null}
 
-        {searchMutation.isError ? (
+        {searchQuery.isError ? (
           <InfoCard title="Search hit a snag" tone="warning">
-            {searchMutation.error instanceof Error
-              ? searchMutation.error.message
+            {searchQuery.error instanceof Error
+              ? searchQuery.error.message
               : "Unknown search error."}
           </InfoCard>
         ) : null}
 
-        {!searchMutation.isPending &&
-        !searchMutation.isError &&
-        lastSubmittedQuery.length >= 2 &&
-        (searchMutation.data?.results.length ?? 0) === 0 ? (
+        {activeSearchTerm.length >= 2 &&
+        !searchQuery.isLoading &&
+        !searchQuery.isError &&
+        searchQuery.data &&
+        !searchQuery.data.transitApiReachable ? (
+          <InfoCard title="Transit backend unavailable">
+            Stop and route matches are temporarily offline, but place search still works for trip setup.
+          </InfoCard>
+        ) : null}
+
+        {activeSearchTerm.length >= 2 &&
+        !searchQuery.isLoading &&
+        !searchQuery.isError &&
+        (searchQuery.data?.results.length ?? 0) === 0 ? (
           <InfoCard title="No matches yet">
             Try a more specific Bogota search like "Theatron Bogota" or "Portal Norte Bogota".
           </InfoCard>
         ) : null}
 
-        {!searchMutation.isPending &&
-        !searchMutation.isError &&
-        lastSubmittedQuery.length >= 2 &&
-        (searchMutation.data?.results.length ?? 0) > 0 ? (
+        {activeSearchTerm.length >= 2 &&
+        !searchQuery.isLoading &&
+        !searchQuery.isError &&
+        (searchQuery.data?.results.length ?? 0) > 0 ? (
           <Text style={styles.resultsMeta}>
-            {searchMutation.data?.results.length} result{searchMutation.data?.results.length === 1 ? "" : "s"} found for "{lastSubmittedQuery}". Tap any one to fill the {activeField} field.
+            {searchQuery.data?.results.length} result
+            {searchQuery.data?.results.length === 1 ? "" : "s"} for "{activeSearchTerm}".
+            Tap one to fill {activeField}.
           </Text>
         ) : null}
 
-        {searchMutation.data?.results.map((result) => {
-          if (result.type === "stop") {
-            return (
-              <Pressable
-                key={result.item.id}
-                onPress={() => {
-                  const selectedStop: PlannerSelection = {
-                    id: result.item.id,
-                    kind: "stop",
-                    label: result.item.name,
-                    detail: `Stop ${result.item.code ?? result.item.id}`,
-                    kindLabel: "Transit stop",
-                    lat: result.item.lat,
-                    lon: result.item.lon,
-                    stopId: result.item.id
-                  };
-                  applySelection(activeField, selectedStop);
-                }}
-                style={styles.resultCard}
-              >
-                <Text style={styles.resultTitle}>{result.item.name}</Text>
-                <Text style={styles.resultSubtitle}>
-                  Stop {result.item.code ?? result.item.id}
-                </Text>
-                <Text style={styles.pickHint}>Tap to use as {activeField}</Text>
-              </Pressable>
-            );
-          }
-
-          if (result.type === "route") {
-            return (
-              <View key={result.item.id} style={styles.resultCard}>
-                <RouteBadge route={result.item.shortName} />
-                <Text style={styles.resultTitle}>{result.item.longName}</Text>
-                <Text style={styles.resultSubtitle}>
-                  Route search works now. Full line detail is next.
-                </Text>
-              </View>
-            );
-          }
-
-          return (
-            <Pressable
-              key={result.item.id}
-              onPress={() => {
-                const selectedPlace: PlannerSelection = {
-                  id: result.item.id,
-                  kind: "place",
-                  label: result.item.label,
-                  detail: result.item.detail,
-                  kindLabel: result.item.kindLabel,
-                  lat: result.item.lat,
-                  lon: result.item.lon,
-                  mapsQuery: `${result.item.label}, Bogota, Colombia`
-                };
-                applySelection(activeField, selectedPlace);
-              }}
-              style={styles.resultCard}
-            >
-              <View style={styles.placeHeader}>
-                <Text style={styles.resultTitle}>{result.item.label}</Text>
-                <View style={styles.placeKindPill}>
-                  <Text style={styles.placeKindText}>{result.item.kindLabel}</Text>
-                </View>
-              </View>
-              <Text style={styles.resultSubtitle}>{result.item.detail}</Text>
-              <Text style={styles.placeHint}>Tap to use as {activeField}</Text>
-            </Pressable>
-          );
-        })}
+        {activeSearchTerm.length >= 2
+          ? searchQuery.data?.results.map((result) => renderSearchResult(result))
+          : null}
       </View>
 
+      {(from || to) && trimmedQuery.length < 2 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Keep these handy</Text>
+
+          {from ? (
+            <View style={styles.savedActionCard}>
+              <Text style={styles.savedActionTitle}>Starting point</Text>
+              <Text style={styles.savedActionBody}>{from.label}</Text>
+              <View style={styles.savedActionRow}>
+                <Pressable onPress={() => setSlot("home", from)} style={styles.savedAction}>
+                  <Text style={styles.savedActionText}>Save as Home</Text>
+                </Pressable>
+                <Pressable onPress={() => saveFavorite(from)} style={styles.savedActionMuted}>
+                  <Text style={styles.savedActionMutedText}>
+                    {isFavorite(from.id) ? "Saved to favorites" : "Save favorite"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
+          {to ? (
+            <View style={styles.savedActionCard}>
+              <Text style={styles.savedActionTitle}>Destination</Text>
+              <Text style={styles.savedActionBody}>{to.label}</Text>
+              <View style={styles.savedActionRow}>
+                <Pressable onPress={() => setSlot("work", to)} style={styles.savedAction}>
+                  <Text style={styles.savedActionText}>Save as Work</Text>
+                </Pressable>
+                <Pressable onPress={() => saveFavorite(to)} style={styles.savedActionMuted}>
+                  <Text style={styles.savedActionMutedText}>
+                    {isFavorite(to.id) ? "Saved to favorites" : "Save favorite"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {(home || work || favorites.length > 0) && trimmedQuery.length < 2 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Quick picks</Text>
+
+          {home ? (
+            <Pressable
+              onPress={() => applySelection(activeField, home)}
+              style={styles.quickChoice}
+            >
+              <Text style={styles.quickChoiceTitle}>Use Home</Text>
+              <Text style={styles.quickChoiceBody}>{home.label}</Text>
+            </Pressable>
+          ) : null}
+
+          {work ? (
+            <Pressable
+              onPress={() => applySelection(activeField, work)}
+              style={styles.quickChoice}
+            >
+              <Text style={styles.quickChoiceTitle}>Use Work</Text>
+              <Text style={styles.quickChoiceBody}>{work.label}</Text>
+            </Pressable>
+          ) : null}
+
+          {favorites.length > 0 ? (
+            <View style={styles.quickPillRow}>
+              {favorites.slice(0, 6).map((favorite) => (
+                <Pressable
+                  key={favorite.id}
+                  onPress={() => applySelection(activeField, favorite)}
+                  style={styles.quickPill}
+                >
+                  <Text style={styles.quickPillText}>{favorite.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Try a trip plan</Text>
+        <Text style={styles.sectionTitle}>Trip plan</Text>
         {from && to ? (
           <Link href="/trips" asChild>
             <Pressable style={styles.previewCard}>
-              <Text style={styles.previewTitle}>Preview routes</Text>
+              <Text style={styles.previewTitle}>See routes and departures</Text>
               <Text style={styles.previewBody}>
                 {from.label} → {to.label}
               </Text>
@@ -543,9 +535,9 @@ export default function SearchScreen() {
           </Link>
         ) : (
           <View style={styles.previewCard}>
-            <Text style={styles.previewTitle}>Choose both trip points</Text>
+            <Text style={styles.previewTitle}>Set both points</Text>
             <Text style={styles.previewBody}>
-              Pick both From and To first, then the trip screen will show the best transit matches we can build from the current Bogota data.
+              Pick a start and destination, then the trip screen will show route options and the next departures from the boarding stop.
             </Text>
           </View>
         )}
@@ -555,70 +547,49 @@ export default function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  searchBox: {
+  section: {
+    gap: theme.spacing.sm
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: theme.colors.ink
+  },
+  searchPanel: {
     backgroundColor: theme.colors.card,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.lg,
-    gap: 4
-  },
-  searchLabel: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: theme.colors.ink
-  },
-  searchHint: {
-    color: theme.colors.mutedInk,
-    lineHeight: 20
-  },
-  inlineActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing.sm,
-    marginTop: 8
-  },
-  searchAction: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10
-  },
-  searchActionText: {
-    color: "#FFFFFF",
-    fontWeight: "800"
-  },
-  inlineAction: {
-    backgroundColor: theme.colors.lineSoft,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10
-  },
-  inlineActionActive: {
-    backgroundColor: theme.colors.accentSoft
-  },
-  inlineActionText: {
-    color: theme.colors.line,
-    fontWeight: "800"
-  },
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: theme.radius.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
-    color: theme.colors.ink
-  },
-  section: {
     gap: theme.spacing.sm
   },
-  plannerStack: {
+  searchPanelHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: theme.spacing.sm
+  },
+  plannerActions: {
+    flexDirection: "row",
+    gap: theme.spacing.sm,
+    flexWrap: "wrap",
+    justifyContent: "flex-end"
+  },
+  smallAction: {
+    backgroundColor: theme.colors.lineSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  smallActionText: {
+    color: theme.colors.line,
+    fontWeight: "700"
+  },
+  plannerRow: {
     gap: theme.spacing.sm
   },
   plannerCard: {
-    backgroundColor: theme.colors.card,
+    backgroundColor: "#FFFFFF",
     borderRadius: theme.radius.md,
     padding: theme.spacing.md,
     borderWidth: 1,
@@ -644,6 +615,38 @@ const styles = StyleSheet.create({
   plannerDetail: {
     color: theme.colors.mutedInk,
     lineHeight: 20
+  },
+  searchLabel: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: theme.colors.ink
+  },
+  input: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 17,
+    color: theme.colors.ink
+  },
+  searchHint: {
+    color: theme.colors.mutedInk,
+    lineHeight: 20
+  },
+  inlineShortcut: {
+    backgroundColor: theme.colors.lineSoft,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    gap: 4
+  },
+  inlineShortcutTitle: {
+    color: theme.colors.line,
+    fontWeight: "800"
+  },
+  inlineShortcutBody: {
+    color: theme.colors.ink
   },
   savedActionCard: {
     backgroundColor: theme.colors.card,
@@ -690,36 +693,6 @@ const styles = StyleSheet.create({
     color: theme.colors.line,
     fontWeight: "800"
   },
-  plannerActions: {
-    flexDirection: "row",
-    gap: theme.spacing.sm
-  },
-  smallAction: {
-    backgroundColor: theme.colors.lineSoft,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8
-  },
-  smallActionText: {
-    color: theme.colors.line,
-    fontWeight: "700"
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: theme.colors.ink
-  },
-  tagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing.sm
-  },
-  tag: {
-    backgroundColor: theme.colors.lineSoft,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8
-  },
   quickChoice: {
     backgroundColor: theme.colors.lineSoft,
     borderRadius: theme.radius.md,
@@ -733,7 +706,18 @@ const styles = StyleSheet.create({
   quickChoiceBody: {
     color: theme.colors.ink
   },
-  tagText: {
+  quickPillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing.sm
+  },
+  quickPill: {
+    backgroundColor: theme.colors.lineSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  quickPillText: {
     color: theme.colors.line,
     fontWeight: "700"
   },
@@ -749,6 +733,13 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
     color: theme.colors.ink
+  },
+  resultSubtitle: {
+    color: theme.colors.mutedInk
+  },
+  resultsMeta: {
+    color: theme.colors.line,
+    fontWeight: "700"
   },
   placeHeader: {
     flexDirection: "row",
@@ -767,18 +758,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800"
   },
-  resultSubtitle: {
-    color: theme.colors.mutedInk
-  },
-  resultsMeta: {
-    color: theme.colors.line,
-    fontWeight: "700"
-  },
   pickHint: {
-    color: theme.colors.line,
-    fontWeight: "700"
-  },
-  placeHint: {
     color: theme.colors.line,
     fontWeight: "700"
   },
