@@ -1,6 +1,11 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
+const isSecureWebContext =
+  Platform.OS === "web" &&
+  typeof window !== "undefined" &&
+  window.location.protocol === "https:";
+
 const configuredApiBaseUrl = resolveApiBaseUrl(
   process.env.EXPO_PUBLIC_API_BASE_URL?.trim()
 );
@@ -17,7 +22,7 @@ export const mobileConfig = {
 function buildApiBaseUrlCandidates(configuredValue?: string): string[] {
   const candidates = new Set<string>();
 
-  if (configuredValue) {
+  if (configuredValue && canReachFromCurrentPage(configuredValue)) {
     candidates.add(configuredValue);
   }
 
@@ -29,11 +34,13 @@ function buildApiBaseUrlCandidates(configuredValue?: string): string[] {
     Constants.expoConfig?.hostUri ?? Constants.expoGoConfig?.debuggerHost ?? "";
   const host = expoHostUri.split(":")[0]?.trim();
 
-  if (host) {
+  if (host && !isSecureWebContext) {
     candidates.add(`http://${host}:4000`);
   }
 
-  candidates.add("http://127.0.0.1:4000");
+  if (!isSecureWebContext) {
+    candidates.add("http://127.0.0.1:4000");
+  }
 
   return Array.from(candidates);
 }
@@ -65,4 +72,12 @@ function resolveApiBaseUrl(value?: string): string | undefined {
   }
 
   return trimmed.replace(/\/$/, "");
+}
+
+function canReachFromCurrentPage(value: string): boolean {
+  if (!isSecureWebContext) {
+    return true;
+  }
+
+  return value.startsWith("https://");
 }

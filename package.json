@@ -13,6 +13,7 @@
     "dev": "concurrently -n api,mobile -c cyan,magenta \"npm run dev --workspace @transito-bogota/api\" \"npm run start --workspace @transito-bogota/mobile\"",
     "dev:api": "npm run dev --workspace @transito-bogota/api",
     "dev:mobile": "npm run start --workspace @transito-bogota/mobile",
+    "share:api": "cloudflared tunnel --url http://127.0.0.1:4000",
     "web": "npm run web --workspace @transito-bogota/mobile",
     "build:web": "npm run build:web --workspace @transito-bogota/mobile",
     "deploy:web:cloudflare": "npm run deploy:web:cloudflare --workspace @transito-bogota/mobile",

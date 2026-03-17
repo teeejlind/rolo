@@ -89,6 +89,26 @@ Right now the cleanest shape is:
 - a public API host for `services/api`
 - the Cloudflare proxy forwarding `/api/*` to that backend
 
+## Temporary friend-testing setup
+
+If you want to share the MVP with a friend before we choose a permanent API host:
+
+1. Start the API on your Mac:
+
+```sh
+npm run dev:api
+```
+
+2. In another terminal, create a temporary public URL for it:
+
+```sh
+npm run share:api
+```
+
+3. Point `API_ORIGIN` in the Cloudflare Worker at that tunnel URL.
+
+This works well for private friend testing, but the tunnel only stays live while your Mac, the API process, and `cloudflared` keep running.
+
 ## Best next step
 
 Make the web build stable first, then choose where the API should live publicly.

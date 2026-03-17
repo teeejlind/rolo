@@ -299,7 +299,21 @@ async function fetchJson<T>(url: string, networkErrorMessage: string): Promise<T
     throw new Error(`API request failed with HTTP ${response.status}.`);
   }
 
-  return (await response.json()) as T;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    const preview = (await response.text()).replace(/\s+/g, " ").slice(0, 80);
+    throw new Error(
+      `The transit API returned ${contentType || "a non-JSON response"} instead of JSON.${
+        preview ? ` Preview: ${preview}` : ""
+      }`
+    );
+  }
+
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error("The transit API returned JSON that could not be parsed.");
+  }
 }
 
 function withTrailingSlash(value: string): string {
@@ -372,7 +386,7 @@ async function searchPlacesDirectly(query: string): Promise<SearchPlaceResult[]>
     return [];
   }
 
-  const payload = (await response.json()) as Array<{
+  let payload: Array<{
     place_id: number;
     lat: string;
     lon: string;
@@ -389,6 +403,28 @@ async function searchPlacesDirectly(query: string): Promise<SearchPlaceResult[]>
       city?: string;
     };
   }>;
+
+  try {
+    payload = (await response.json()) as Array<{
+      place_id: number;
+      lat: string;
+      lon: string;
+      name?: string;
+      category?: string;
+      type?: string;
+      address?: {
+        amenity?: string;
+        attraction?: string;
+        road?: string;
+        pedestrian?: string;
+        neighbourhood?: string;
+        suburb?: string;
+        city?: string;
+      };
+    }>;
+  } catch {
+    return [];
+  }
 
   return payload
     .map((item) => {
