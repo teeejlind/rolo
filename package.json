@@ -17,6 +17,7 @@
     "web": "npm run web --workspace @transito-bogota/mobile",
     "build:web": "npm run build:web --workspace @transito-bogota/mobile",
     "deploy:web:cloudflare": "npm run deploy:web:cloudflare --workspace @transito-bogota/mobile",
+    "build:cloudflare-api-data": "node infra/scripts/generate-cloudflare-api-data.mjs",
     "refresh:static": "npm run refresh:static --workspace @transito-bogota/api",
     "otp:prepare": "node infra/scripts/prepare-otp-inputs.mjs",
     "reload:realtime": "npm run reload:realtime --workspace @transito-bogota/api",
