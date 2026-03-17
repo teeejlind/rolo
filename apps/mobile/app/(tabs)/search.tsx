@@ -208,29 +208,31 @@ export default function SearchScreen() {
     }
 
     if (result.type === "stop") {
+      const selectedStop: PlannerSelection = {
+        id: result.item.id,
+        kind: "stop",
+        label: result.item.name,
+        detail: `Stop ${result.item.code ?? result.item.id}`,
+        kindLabel: "Transit stop",
+        lat: result.item.lat,
+        lon: result.item.lon,
+        stopId: result.item.id
+      };
+
       return (
         <Pressable
           key={result.item.id}
-          onPress={() => {
-            const selectedStop: PlannerSelection = {
-              id: result.item.id,
-              kind: "stop",
-              label: result.item.name,
-              detail: `Stop ${result.item.code ?? result.item.id}`,
-              kindLabel: "Transit stop",
-              lat: result.item.lat,
-              lon: result.item.lon,
-              stopId: result.item.id
-            };
-            applySelection(activeField, selectedStop);
-          }}
+          onPress={() => applySelection(activeField, selectedStop)}
           style={styles.resultCard}
         >
           <Text style={styles.resultTitle}>{result.item.name}</Text>
           <Text style={styles.resultSubtitle}>
             Stop {result.item.code ?? result.item.id}
           </Text>
-          <Text style={styles.pickHint}>Tap to use as {activeField}</Text>
+          <Text style={styles.pickHint}>
+            Tap to use as {activeField}, or choose a specific slot below.
+          </Text>
+          {renderResultActions(selectedStop)}
         </Pressable>
       );
     }
@@ -247,22 +249,21 @@ export default function SearchScreen() {
       );
     }
 
+    const selectedPlace: PlannerSelection = {
+      id: result.item.id,
+      kind: "place",
+      label: result.item.label,
+      detail: result.item.detail,
+      kindLabel: result.item.kindLabel,
+      lat: result.item.lat,
+      lon: result.item.lon,
+      mapsQuery: `${result.item.label}, Bogota, Colombia`
+    };
+
     return (
       <Pressable
         key={result.item.id}
-        onPress={() => {
-          const selectedPlace: PlannerSelection = {
-            id: result.item.id,
-            kind: "place",
-            label: result.item.label,
-            detail: result.item.detail,
-            kindLabel: result.item.kindLabel,
-            lat: result.item.lat,
-            lon: result.item.lon,
-            mapsQuery: `${result.item.label}, Bogota, Colombia`
-          };
-          applySelection(activeField, selectedPlace);
-        }}
+        onPress={() => applySelection(activeField, selectedPlace)}
         style={styles.resultCard}
       >
         <View style={styles.placeHeader}>
@@ -272,8 +273,30 @@ export default function SearchScreen() {
           </View>
         </View>
         <Text style={styles.resultSubtitle}>{result.item.detail}</Text>
-        <Text style={styles.pickHint}>Tap to use as {activeField}</Text>
+        <Text style={styles.pickHint}>
+          Tap to use as {activeField}, or choose From or To below.
+        </Text>
+        {renderResultActions(selectedPlace)}
       </Pressable>
+    );
+  }
+
+  function renderResultActions(selection: PlannerSelection) {
+    return (
+      <View style={styles.resultActionRow}>
+        <Pressable
+          onPress={() => applySelection("from", selection)}
+          style={styles.resultActionPrimary}
+        >
+          <Text style={styles.resultActionPrimaryText}>Use as From</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => applySelection("to", selection)}
+          style={styles.resultActionSecondary}
+        >
+          <Text style={styles.resultActionSecondaryText}>Use as To</Text>
+        </Pressable>
+      </View>
     );
   }
 
@@ -330,7 +353,7 @@ export default function SearchScreen() {
         </View>
 
         <Text style={styles.searchLabel}>
-          Filling {activeField === "from" ? "From" : "To"}
+          Next result will fill {activeField === "from" ? "From" : "To"}
         </Text>
         <TextInput
           autoCapitalize="words"
@@ -371,15 +394,26 @@ export default function SearchScreen() {
         ) : null}
 
         {trimmedQuery.length >= 2 ? (
-          <Pressable
-            onPress={() => applyFreeformSelection(activeField, trimmedQuery)}
-            style={styles.inlineShortcut}
-          >
+          <View style={styles.inlineShortcut}>
             <Text style={styles.inlineShortcutTitle}>Use typed place exactly</Text>
             <Text style={styles.inlineShortcutBody}>
-              Use "{trimmedQuery}" as your {activeField}.
+              Use "{trimmedQuery}" as a manual place if the exact business or address is missing from search.
             </Text>
-          </Pressable>
+            <View style={styles.resultActionRow}>
+              <Pressable
+                onPress={() => applyFreeformSelection("from", trimmedQuery)}
+                style={styles.resultActionPrimary}
+              >
+                <Text style={styles.resultActionPrimaryText}>Use as From</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => applyFreeformSelection("to", trimmedQuery)}
+                style={styles.resultActionSecondary}
+              >
+                <Text style={styles.resultActionSecondaryText}>Use as To</Text>
+              </Pressable>
+            </View>
+          </View>
         ) : null}
       </View>
 
@@ -728,6 +762,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     gap: 6
+  },
+  resultActionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing.sm,
+    marginTop: 4
+  },
+  resultActionPrimary: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  resultActionPrimaryText: {
+    color: "#FFFFFF",
+    fontWeight: "800"
+  },
+  resultActionSecondary: {
+    backgroundColor: theme.colors.lineSoft,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  resultActionSecondaryText: {
+    color: theme.colors.line,
+    fontWeight: "800"
   },
   resultTitle: {
     fontSize: 17,
