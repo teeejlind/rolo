@@ -1,0 +1,27 @@
+{
+  "name": "transito-bogota",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/mobile",
+    "services/api",
+    "packages/*"
+  ],
+  "scripts": {
+    "setup": "node infra/scripts/setup.mjs",
+    "local-ip": "node infra/scripts/print-local-ip.mjs",
+    "dev": "concurrently -n api,mobile -c cyan,magenta \"npm run dev --workspace @transito-bogota/api\" \"npm run start --workspace @transito-bogota/mobile\"",
+    "dev:api": "npm run dev --workspace @transito-bogota/api",
+    "dev:mobile": "npm run start --workspace @transito-bogota/mobile",
+    "web": "npm run web --workspace @transito-bogota/mobile",
+    "build:web": "npm run build:web --workspace @transito-bogota/mobile",
+    "deploy:web:cloudflare": "npm run deploy:web:cloudflare --workspace @transito-bogota/mobile",
+    "refresh:static": "npm run refresh:static --workspace @transito-bogota/api",
+    "otp:prepare": "node infra/scripts/prepare-otp-inputs.mjs",
+    "reload:realtime": "npm run reload:realtime --workspace @transito-bogota/api",
+    "typecheck": "npm run typecheck --workspace @transito-bogota/api && npm run typecheck --workspace @transito-bogota/mobile"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

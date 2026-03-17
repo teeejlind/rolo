@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# env
+.env
+.env.local
+
+# logs
+*.log
+npm-debug.log*
+
+# dependencies
+node_modules/
+
+# builds and caches
+.expo/
+.turbo/
+dist/
+build/
+coverage/
+expo-go-qr.png
+
+# native artifacts
+ios/
+android/
+
+# local transit data
+services/api/data/cache/*.json
+services/api/data/gtfs/**/*.zip
+services/api/data/gtfs/static/current/
+services/routing/data/gtfs/*.zip

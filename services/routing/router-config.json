@@ -1,0 +1,9 @@
+{
+  "routingDefaults": {
+    "walkSpeed": 1.33,
+    "walkReluctance": 2.0,
+    "waitReluctance": 1.0,
+    "transferPenalty": 120
+  },
+  "updaters": []
+}

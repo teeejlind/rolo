@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: transito-bogota-postgres
+    environment:
+      POSTGRES_DB: transito_bogota
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: transito-bogota-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  otp:
+    image: docker.io/opentripplanner/opentripplanner:latest
+    container_name: transito-bogota-otp
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../../services/routing/data:/var/opentripplanner
+      - ../../services/routing/router-config.json:/var/opentripplanner/router-config.json
+    command:
+      - --load
+      - --serve
+      - /var/opentripplanner
+
+volumes:
+  postgres-data:
+  redis-data:

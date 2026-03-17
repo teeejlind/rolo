@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Transito Bogota",
+    "slug": "transito-bogota",
+    "scheme": "transitobogota",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router"
+    ],
+    "web": {
+      "output": "single"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.transitobogota.dev"
+    }
+  }
+}
