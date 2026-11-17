@@ -1,0 +1,6 @@
+// Shared build settings. To sign for a device, copy Local.xcconfig.example to
+// Local.xcconfig (git-ignored) and set your own bundle prefix and team.
+ROLO_BUNDLE_PREFIX = dev.rolo.example
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"
